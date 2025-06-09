@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   PlusCircle, 
   FileUp, 
@@ -37,44 +36,14 @@ import {
   TabsTrigger,
 } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
+import axios from 'axios';
 
-// Mock data
-const mockJobs = [
-  { 
-    id: 1, 
-    title: "Senior Software Engineer", 
-    company: "TechCorp", 
-    location: "San Francisco, CA", 
-    created: "2023-04-15", 
-    candidates: 24,
-    requirements: ["5+ years in React", "Node.js", "Cloud platforms"],
-    responsibilities: ["Lead development team", "Architect solutions", "Code reviews"]
-  },
-  { 
-    id: 2, 
-    title: "Product Manager", 
-    company: "InnovateTech", 
-    location: "Remote", 
-    created: "2023-04-10", 
-    candidates: 18,
-    requirements: ["3+ years in product management", "Agile methodology", "User research"],
-    responsibilities: ["Product roadmap", "Market analysis", "Feature prioritization"]
-  },
-  { 
-    id: 3, 
-    title: "UX Designer", 
-    company: "DesignHub", 
-    location: "New York, NY", 
-    created: "2023-04-05", 
-    candidates: 15,
-    requirements: ["3+ years in UX design", "Figma", "User testing"],
-    responsibilities: ["Create wireframes", "User research", "Design systems"]
-  }
-];
+// API base URL
+const API_BASE_URL = 'http://localhost:8000';
 
 const JobDescriptions = () => {
   const { toast } = useToast();
-  const [jobs, setJobs] = useState(mockJobs);
+  const [jobs, setJobs] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -85,54 +54,109 @@ const JobDescriptions = () => {
     location: "",
     description: ""
   });
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Fetch jobs on mount
+  useEffect(() => {
+    fetchJobs();
+  }, []);
+
+  const fetchJobs = async () => {
+    setIsLoading(true);
+    try {
+      const response = await axios.get(`${API_BASE_URL}/jobs/`);
+      setJobs(response.data.jobs);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch job descriptions.",
+        variant: "destructive"
+      });
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const filteredJobs = jobs.filter(job => 
     job.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
     job.company.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     
     if (file) {
-      // In a real app, you would send this file to the API
-      toast({
-        title: "Job Description Uploaded",
-        description: `${file.name} has been uploaded and is being processed.`,
-      });
-      setIsUploadDialogOpen(false);
+      setIsLoading(true);
+      const formData = new FormData();
+      formData.append('job_description_file', file);
+      try {
+        const response = await axios.post(`${API_BASE_URL}/upload-jd/`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        toast({
+          title: "Job Description Uploaded",
+          description: `${response.data.title} has been uploaded and is being processed.`,
+        });
+        fetchJobs(); // Refresh job list
+        setIsUploadDialogOpen(false);
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to upload job description.",
+          variant: "destructive"
+        });
+        console.error(error);
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
-  const handleCreateJob = () => {
-    // In a real app, you would send the job data to the API
-    toast({
-      title: "Job Description Created",
-      description: `${newJobData.title} has been created successfully.`,
-    });
-    
-    // Add to local state for demo purpose
-    setJobs([...jobs, {
-      id: jobs.length + 1,
-      title: newJobData.title,
-      company: newJobData.company,
-      location: newJobData.location,
-      created: new Date().toISOString().split('T')[0],
-      candidates: 0,
-      requirements: [],
-      responsibilities: []
-    }]);
-    
-    setIsCreateDialogOpen(false);
-    setNewJobData({
-      title: "",
-      company: "",
-      location: "",
-      description: ""
-    });
+  const handleCreateJob = async () => {
+    if (!newJobData.title || !newJobData.company || !newJobData.location) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields.",
+        variant: "destructive"
+      });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const jobDescriptionText = `
+        Job Title: ${newJobData.title}
+        Company: ${newJobData.company}
+        Location: ${newJobData.location}
+        Description: ${newJobData.description}
+      `;
+      const response = await axios.post(`${API_BASE_URL}/parse-jd/`, {
+        job_description_text: jobDescriptionText
+      });
+      toast({
+        title: "Job Description Created",
+        description: `${response.data.title} has been created successfully.`,
+      });
+      fetchJobs(); // Refresh job list
+      setIsCreateDialogOpen(false);
+      setNewJobData({
+        title: "",
+        company: "",
+        location: "",
+        description: ""
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create job description.",
+        variant: "destructive"
+      });
+      console.error(error);
+      setIsLoading(false);
+    }
   };
 
-  const handleParseJobText = () => {
+  const handleParseJobText = async () => {
     if (jobTextContent.trim() === "") {
       toast({
         title: "Error",
@@ -142,30 +166,49 @@ const JobDescriptions = () => {
       return;
     }
     
-    // In a real app, you would send this text to the API for parsing
-    toast({
-      title: "Job Description Parsing",
-      description: "Text is being processed by AI. This may take a moment.",
-    });
-    
-    // Simulate parsing success after delay
-    setTimeout(() => {
+    setIsLoading(true);
+    try {
+      const response = await axios.post(`${API_BASE_URL}/parse-jd/`, {
+        job_description_text: jobTextContent
+      });
       toast({
         title: "Parsing Complete",
         description: "Job description has been successfully parsed.",
       });
+      fetchJobs(); // Refresh job list
       setJobTextContent("");
-    }, 2000);
+      setIsCreateDialogOpen(false);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to parse job description.",
+        variant: "destructive"
+      });
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const deleteJob = (id: number) => {
-    // In a real app, you would call the API to delete the job
-    setJobs(jobs.filter(job => job.id !== id));
-    
-    toast({
-      title: "Job Description Deleted",
-      description: "The job description has been successfully deleted.",
-    });
+  const deleteJob = async (job_id) => {
+    setIsLoading(true);
+    try {
+      await axios.delete(`${API_BASE_URL}/jobs/${job_id}`);
+      toast({
+        title: "Job Description Deleted",
+        description: "The job description has been successfully deleted.",
+      });
+      fetchJobs(); // Refresh job list
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete job description.",
+        variant: "destructive"
+      });
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -181,7 +224,7 @@ const JobDescriptions = () => {
         <div className="flex gap-2">
           <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline">
+              <Button variant="outline" disabled={isLoading}>
                 <FileUp className="mr-2 h-4 w-4" />
                 Upload
               </Button>
@@ -196,21 +239,21 @@ const JobDescriptions = () => {
               <div className="grid gap-4 py-4">
                 <div className="grid gap-2">
                   <Label htmlFor="job-file">Job Description File</Label>
-                  <Input id="job-file" type="file" onChange={handleFileUpload} />
+                  <Input id="job-file" type="file" onChange={handleFileUpload} disabled={isLoading} />
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsUploadDialogOpen(false)}>
+                <Button variant="outline" onClick={() => setIsUploadDialogOpen(false)} disabled={isLoading}>
                   Cancel
                 </Button>
-                <Button type="submit">Upload & Process</Button>
+                <Button disabled={isLoading}>Upload & Process</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
           
           <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>
-              <Button>
+              <Button disabled={isLoading}>
                 <PlusCircle className="mr-2 h-4 w-4" />
                 Create New
               </Button>
@@ -237,6 +280,7 @@ const JobDescriptions = () => {
                         id="title" 
                         value={newJobData.title}
                         onChange={(e) => setNewJobData({...newJobData, title: e.target.value})}
+                        disabled={isLoading}
                       />
                     </div>
                     <div className="grid gap-2">
@@ -245,6 +289,7 @@ const JobDescriptions = () => {
                         id="company" 
                         value={newJobData.company}
                         onChange={(e) => setNewJobData({...newJobData, company: e.target.value})}
+                        disabled={isLoading}
                       />
                     </div>
                     <div className="grid gap-2">
@@ -253,6 +298,7 @@ const JobDescriptions = () => {
                         id="location" 
                         value={newJobData.location}
                         onChange={(e) => setNewJobData({...newJobData, location: e.target.value})}
+                        disabled={isLoading}
                       />
                     </div>
                     <div className="grid gap-2">
@@ -262,11 +308,12 @@ const JobDescriptions = () => {
                         rows={5}
                         value={newJobData.description}
                         onChange={(e) => setNewJobData({...newJobData, description: e.target.value})}
+                        disabled={isLoading}
                       />
                     </div>
                   </div>
                   <DialogFooter>
-                    <Button onClick={handleCreateJob}>Create Job</Button>
+                    <Button onClick={handleCreateJob} disabled={isLoading}>Create Job</Button>
                   </DialogFooter>
                 </TabsContent>
                 
@@ -279,13 +326,14 @@ const JobDescriptions = () => {
                       rows={10}
                       value={jobTextContent}
                       onChange={(e) => setJobTextContent(e.target.value)}
+                      disabled={isLoading}
                     />
                     <p className="text-sm text-muted-foreground">
                       Our AI will parse the text and extract key details.
                     </p>
                   </div>
                   <DialogFooter>
-                    <Button onClick={handleParseJobText}>Parse with AI</Button>
+                    <Button onClick={handleParseJobText} disabled={isLoading}>Parse with AI</Button>
                   </DialogFooter>
                 </TabsContent>
               </Tabs>
@@ -301,19 +349,23 @@ const JobDescriptions = () => {
           className="max-w-sm"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
+          disabled={isLoading}
         />
         {searchQuery && (
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setSearchQuery("")}
+            disabled={isLoading}
           >
             <X className="h-4 w-4" />
           </Button>
         )}
       </div>
       
-      {jobs.length === 0 ? (
+      {isLoading ? (
+        <div className="text-center py-10">Loading...</div>
+      ) : jobs.length === 0 ? (
         <EmptyState
           title="No Job Descriptions"
           description="Create or upload a job description to get started with AI-powered candidate matching."
@@ -334,7 +386,7 @@ const JobDescriptions = () => {
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {filteredJobs.map((job) => (
-            <Card key={job.id} className="card-hover">
+            <Card key={job.job_id} className="card-hover">
               <CardHeader>
                 <CardTitle>{job.title}</CardTitle>
                 <CardDescription>{job.company} • {job.location}</CardDescription>
@@ -344,23 +396,23 @@ const JobDescriptions = () => {
                   <div>
                     <h4 className="text-sm font-medium mb-2">Key Requirements</h4>
                     <ul className="text-sm text-muted-foreground list-disc list-inside">
-                      {job.requirements.slice(0, 3).map((req, i) => (
+                      {(job.requirements?.required_skills || []).slice(0, 3).map((req, i) => (
                         <li key={i}>{req}</li>
                       ))}
                     </ul>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Created: {job.created}</span>
-                    <span>{job.candidates} candidates</span>
+                    <span className="text-muted-foreground">Created: {job.posting_date}</span>
+                    <span>{job.candidate_count || 0} candidates</span>
                   </div>
                 </div>
               </CardContent>
               <CardFooter className="flex justify-between">
-                <Button variant="ghost" size="sm" onClick={() => deleteJob(job.id)}>
+                <Button variant="ghost" size="sm" onClick={() => deleteJob(job.job_id)} disabled={isLoading}>
                   <Trash2 className="mr-2 h-4 w-4" />
                   Delete
                 </Button>
-                <Button variant="ghost" size="sm">View Details</Button>
+                <Button variant="ghost" size="sm" disabled={isLoading}>View Details</Button>
               </CardFooter>
             </Card>
           ))}
